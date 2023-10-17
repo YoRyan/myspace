@@ -1,0 +1,15 @@
+{
+  "dependencies": {
+    "@devcontainers/cli": "^0.52.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.4",
+    "prettier": "^3.0.3"
+  },
+  "type": "commonjs",
+  "scripts": {
+    "lint": "prettier --check .",
+    "fix:prettier": "prettier --write .",
+    "build": "tsc && cp -ar node_modules/@devcontainers/ out/ && install -Dm755 $(command -v node) out/node/node && install -m755 myspace.sh out/myspace"
+  }
+}
