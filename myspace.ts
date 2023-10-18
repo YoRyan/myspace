@@ -9,6 +9,7 @@ type Project = {
     workspaceFolder: string;
 };
 
+// TODO: Hardcoded ports means only one container can run at a time.
 const webUiPort = 7999;
 const webUiForwardPort = 8000;
 
@@ -88,7 +89,9 @@ async function runWebUi(cli: Cli, port: number, forwardPort: number) {
     }).listen(webUiForwardPort);
     log("**", `Forwarding on port ${forwardPort} for access away from localhost.`, "**");
 
-    await waitForChild(cli.exec(["sh", "-c", `~/code serve-web --host :: --port ${port}`]));
+    // TODO: It would be preferable to run with the connection token, but that
+    // doesn't seem to play nice with the port proxy.
+    await waitForChild(cli.exec(["sh", "-c", `~/code serve-web  --host :: --port ${port} --without-connection-token`]));
 }
 
 async function installExtensions(cli: Cli) {
