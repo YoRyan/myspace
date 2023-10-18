@@ -101,19 +101,19 @@ class Cli {
         "devContainersSpecCLI.js",
     );
 
-    private workspaceFolder: [string, string];
+    private projectOptions: string[];
 
     constructor(project: Project) {
-        this.workspaceFolder = ["--workspace-folder", project.workspaceFolder];
+        this.projectOptions = ["--workspace-folder", project.workspaceFolder];
     }
 
     async up() {
-        const child = Cli.spawn(["up", ...this.workspaceFolder], { stdio: ["ignore", "inherit", "inherit"] });
+        const child = Cli.spawn(["up", ...this.projectOptions], { stdio: ["ignore", "inherit", "inherit"] });
         await waitForChild(child);
     }
 
     exec(args: string[], options: SpawnOptions = {}) {
-        return Cli.spawn(["exec", ...this.workspaceFolder, ...args], {
+        return Cli.spawn(["exec", ...this.projectOptions, ...args], {
             detached: true,
             stdio: ["inherit", "inherit", "inherit"],
             ...options,
@@ -121,7 +121,7 @@ class Cli {
     }
 
     async readConfiguration() {
-        const child = Cli.spawn(["read-configuration", ...this.workspaceFolder], {
+        const child = Cli.spawn(["read-configuration", ...this.projectOptions], {
             stdio: ["ignore", "pipe", "inherit"],
         });
         const text = await waitForChildWithStdout(child);
