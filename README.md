@@ -13,6 +13,7 @@ And, most importantly, it lets you combine the convenience of Codespaces with th
 ```sh
 npm run build
 ```
+
 ```sh
 ./out/myspace help
 ```
@@ -20,31 +21,37 @@ npm run build
 ## Use it
 
 Start a project:
+
 ```sh
 git clone https://github.com/microsoft/vscode-remote-try-python.git ~/Projects/vscode-remote-try-python
 ```
 
 Spin up the container:
+
 ```sh
 myspace ~/Projects/vscode-remote-try-python/ up
 ```
 
 Authenticate with GitHub, create the tunnel:
+
 ```sh
 myspace ~/Projects/vscode-remote-try-python/ tunnel
 ```
 
 When you first connect to the tunnel on vscode.dev, the container will download code-server. Once that happens, you will be able to install any extensions defined in devcontainer.json:
+
 ```sh
 myspace ~/Projects/vscode-remote-try-python/ extensions
 ```
 
 Bring the tunnel back up to get some work done:
+
 ```sh
 myspace ~/Projects/vscode-remote-try-python/ tunnel
 ```
 
 When you're all done with this container, you can disconnect your tunnel:
+
 ```sh
 myspace ~/Projects/vscode-remote-try-python/ unregister
 ```
