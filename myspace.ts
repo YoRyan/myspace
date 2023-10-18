@@ -91,8 +91,8 @@ async function executeShell(cli: Cli, cmd: string, ...args: string[]) {
 }
 
 class Cli {
-    private static nodePath = process.argv[0];
-    private static modulePath = path.resolve(
+    private static readonly nodePath = process.argv[0];
+    private static readonly modulePath = path.resolve(
         __dirname,
         "@devcontainers",
         "cli",
@@ -100,8 +100,7 @@ class Cli {
         "spec-node",
         "devContainersSpecCLI.js",
     );
-
-    private projectOptions: string[];
+    private readonly projectOptions: string[];
 
     constructor(project: Project) {
         this.projectOptions = ["--workspace-folder", project.workspaceFolder];
