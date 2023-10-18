@@ -50,6 +50,13 @@ Bring the tunnel back up to get some work done:
 myspace ~/Projects/vscode-remote-try-python/ tunnel
 ```
 
+Or try the standalone web server to bypass the latency of a vscode.dev tunnel:
+
+```sh
+myspace ~/Projects/vscode-remote-try-python/ local
+# Web UI is available at http://localhost:7999 and http://0.0.0.0:8000
+```
+
 When you're all done with this container, you can disconnect your tunnel:
 
 ```sh

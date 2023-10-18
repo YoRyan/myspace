@@ -1,4 +1,6 @@
 import { ChildProcess, SpawnOptions, spawn } from "child_process";
+import * as fsp from "fs/promises";
+import * as net from "net";
 import { parseArgs } from "node:util";
 import * as path from "path";
 
@@ -7,16 +9,22 @@ type Project = {
     workspaceFolder: string;
 };
 
+const webUiPort = 7999;
+const webUiForwardPort = 8000;
+
 async function main() {
     const { positionals } = parseArgs({ strict: false });
     const [workspaceFolder, action] = positionals;
     const cli = new Cli({ workspaceFolder });
     switch (action !== undefined ? action.toLowerCase() : "") {
         case "up":
-            await setUpContainer(cli);
+            await setUpContainer(cli, webUiPort);
             break;
         case "tunnel":
             await runTunnel(cli);
+            break;
+        case "local":
+            await runWebUi(cli, webUiPort, webUiForwardPort);
             break;
         case "ext":
         case "extensions":
@@ -29,14 +37,20 @@ async function main() {
             await executeShell(cli, "bash");
             break;
         default:
-            console.log("Usage: myspace <project> (up | tunnel | extensions | unregister)");
+            console.log("Usage: myspace <project> (up | tunnel | local | extensions | unregister)");
             break;
     }
 }
 
-async function setUpContainer(cli: Cli) {
-    // Create the container.
-    await cli.up();
+async function setUpContainer(cli: Cli, appPort: number) {
+    const cliConfig = await cli.readConfiguration();
+
+    // Create the container. Expose the port for the web UI.
+    const configFile = await fsp.open(cliConfig.configuration.configFilePath.path);
+    const configText = (await fsp.readFile(configFile)).toString();
+    const configJson = JSON.parse(configText.replace(/\/\/.*$/gm, ""));
+    await configFile.close();
+    await cli.up({ ...configJson, appPort });
 
     // Download VS Code CLI.
     await waitForChild(
@@ -48,8 +62,7 @@ async function setUpContainer(cli: Cli) {
     );
 
     // Insert custom settings JSON.
-    const config = await cli.readConfiguration();
-    const settings = config.configuration?.customizations?.vscode?.settings ?? {};
+    const settings = cliConfig.configuration?.customizations?.vscode?.settings ?? {};
     await waitForChild(cli.exec(["sh", "-c", "mkdir -p ~/.vscode-server/data/Machine/"]));
     const saveSettings = cli.exec(["sh", "-c", "cat >~/.vscode-server/data/Machine/settings.json"], {
         stdio: ["pipe", "inherit", "inherit"],
@@ -61,6 +74,21 @@ async function setUpContainer(cli: Cli) {
 
 async function runTunnel(cli: Cli) {
     await waitForChild(cli.exec(["sh", "-c", "~/code tunnel"]));
+}
+
+async function runWebUi(cli: Cli, port: number, forwardPort: number) {
+    // App ports are only exposed to localhost, so spin up a simple port proxy.
+    // https://stackoverflow.com/a/19637388
+    net.createServer(from => {
+        const to = net.createConnection({ port });
+        from.on("error", to.destroy);
+        from.pipe(to);
+        to.on("error", from.destroy);
+        to.pipe(from);
+    }).listen(webUiForwardPort);
+    console.error("<**>", `** Forwarding on port ${forwardPort} for access away from localhost. **`);
+
+    await waitForChild(cli.exec(["sh", "-c", `~/code serve-web --host :: --port ${port}`]));
 }
 
 async function installExtensions(cli: Cli) {
@@ -91,6 +119,8 @@ async function executeShell(cli: Cli, cmd: string, ...args: string[]) {
 }
 
 class Cli {
+    public readonly project: Project;
+
     private static readonly nodePath = process.argv[0];
     private static readonly modulePath = path.resolve(
         __dirname,
@@ -103,11 +133,18 @@ class Cli {
     private readonly projectOptions: string[];
 
     constructor(project: Project) {
+        this.project = project;
         this.projectOptions = ["--workspace-folder", project.workspaceFolder];
     }
 
-    async up() {
-        const child = Cli.spawn(["up", ...this.projectOptions], { stdio: ["ignore", "inherit", "inherit"] });
+    async up(overrideConfig: any) {
+        // Need to use a shell because Node doesn't populate /dev/stdin...
+        const child = Cli.spawnInShell(["up", ...this.projectOptions, "--override-config", "/dev/stdin"], {
+            stdio: ["pipe", "inherit", "inherit"],
+        });
+        child.stdin.write(JSON.stringify(overrideConfig));
+        child.stdin.write("\n");
+        child.stdin.end();
         await waitForChild(child);
     }
 
@@ -136,6 +173,17 @@ class Cli {
         // Don't use fork() here; it seems to break the exec command.
         return spawn(Cli.nodePath, [Cli.modulePath, ...args], options);
     }
+
+    private static spawnInShell(args: string[], options: SpawnOptions) {
+        console.error("<**>", "devcontainer", ...args);
+
+        const shell = escapeShell(Cli.nodePath, Cli.modulePath, ...args);
+        return spawn("sh", ["-c", "tee /dev/null | " + shell], options);
+    }
+}
+
+function escapeShell(...args: string[]) {
+    return args.map(a => `'${a.replaceAll("'", "'\\''")}'`).join(" ");
 }
 
 async function waitForChildWithStdout(child: ChildProcess) {
