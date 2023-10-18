@@ -86,7 +86,7 @@ async function runWebUi(cli: Cli, port: number, forwardPort: number) {
         to.on("error", from.destroy);
         to.pipe(from);
     }).listen(webUiForwardPort);
-    console.error("<**>", `** Forwarding on port ${forwardPort} for access away from localhost. **`);
+    log("**", `Forwarding on port ${forwardPort} for access away from localhost.`, "**");
 
     await waitForChild(cli.exec(["sh", "-c", `~/code serve-web --host :: --port ${port}`]));
 }
@@ -168,14 +168,14 @@ class Cli {
     }
 
     private static spawn(args: string[], options: SpawnOptions) {
-        console.error("<**>", "devcontainer", ...args);
+        log("devcontainer", ...args);
 
         // Don't use fork() here; it seems to break the exec command.
         return spawn(Cli.nodePath, [Cli.modulePath, ...args], options);
     }
 
     private static spawnInShell(args: string[], options: SpawnOptions) {
-        console.error("<**>", "devcontainer", ...args);
+        log("devcontainer", ...args);
 
         const shell = escapeShell(Cli.nodePath, Cli.modulePath, ...args);
         return spawn("sh", ["-c", "tee /dev/null | " + shell], options);
@@ -200,6 +200,10 @@ async function waitForChild(child: ChildProcess) {
         child.on("close", resolve);
         child.on("error", reject);
     });
+}
+
+function log(...message: any[]) {
+    console.error("+", ...message);
 }
 
 main();
