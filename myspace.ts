@@ -125,6 +125,9 @@ class Cli {
             stdio: ["ignore", "pipe", "inherit"],
         });
         const text = await waitForChildWithStdout(child);
+        if (!text) {
+            throw "unable to read dev container configuration; does this workspace have one?";
+        }
         return JSON.parse(text);
     }
 
