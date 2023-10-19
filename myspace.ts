@@ -9,6 +9,8 @@ type Project = {
     workspaceFolder: string;
 };
 
+const persistPath = "~/.myspace";
+
 // TODO: Hardcoded ports means only one container can run at a time.
 const webUiPort = 7999;
 const webUiForwardPort = 8000;
@@ -53,12 +55,15 @@ async function setUpContainer(cli: Cli, appPort: number) {
     await configFile.close();
     await cli.up({ ...configJson, appPort });
 
+    // Create directory for persistent storage.
+    await waitForChild(cli.exec(["sh", "-c", `mkdir -p ${persistPath}`]));
+
     // Download VS Code CLI.
     await waitForChild(
         cli.exec([
             "sh",
             "-c",
-            "cd && curl -L https://update.code.visualstudio.com/latest/cli-linux-x64/stable | tar xz",
+            `cd ${persistPath} && curl -L https://update.code.visualstudio.com/latest/cli-linux-x64/stable | tar xz`,
         ]),
     );
 
@@ -74,7 +79,7 @@ async function setUpContainer(cli: Cli, appPort: number) {
 }
 
 async function runTunnel(cli: Cli) {
-    await waitForChild(cli.exec(["sh", "-c", "~/code tunnel"]));
+    await waitForChild(cli.exec(["sh", "-c", `${persistPath}/code tunnel`]));
 }
 
 async function runWebUi(cli: Cli, port: number, forwardPort: number) {
@@ -91,7 +96,7 @@ async function runWebUi(cli: Cli, port: number, forwardPort: number) {
 
     // TODO: It would be preferable to run with the connection token, but that
     // doesn't seem to play nice with the port proxy.
-    await waitForChild(cli.exec(["sh", "-c", `~/code serve-web  --host :: --port ${port} --without-connection-token`]));
+    await waitForChild(cli.exec(["sh", "-c", `${persistPath}/code serve-web  --host :: --port ${port} --without-connection-token`]));
 }
 
 async function installExtensions(cli: Cli) {
@@ -114,7 +119,7 @@ async function installExtensions(cli: Cli) {
 }
 
 async function unregisterTunnel(cli: Cli) {
-    await waitForChild(cli.exec(["sh", "-c", "~/code tunnel unregister"]));
+    await waitForChild(cli.exec(["sh", "-c", `${persistPath}/code tunnel unregister`]));
 }
 
 async function executeShell(cli: Cli, cmd: string, ...args: string[]) {
