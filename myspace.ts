@@ -9,25 +9,26 @@ type Project = {
     workspaceFolder: string;
 };
 
-const persistPath = "~/.myspace";
+type Persistent = {
+    appPort: number;
+};
 
-// TODO: Hardcoded ports means only one container can run at a time.
-const webUiPort = 7999;
-const webUiForwardPort = 8000;
+const persistPath = "~/.myspace";
 
 async function main() {
     const { positionals } = parseArgs({ strict: false });
-    const [workspaceFolder, action] = positionals;
+    const [workspaceFolder, action, ...args] = positionals;
     const cli = new Cli({ workspaceFolder });
     switch (action !== undefined ? action.toLowerCase() : "") {
         case "up":
-            await setUpContainer(cli, webUiPort);
+            await setUpContainer(cli);
             break;
         case "tunnel":
             await runTunnel(cli);
             break;
         case "local":
-            await runWebUi(cli, webUiPort, webUiForwardPort);
+            const [forwardPort] = args;
+            await runWebUi(cli, forwardPort ? parseInt(forwardPort) : undefined);
             break;
         case "ext":
         case "extensions":
@@ -40,13 +41,14 @@ async function main() {
             await executeShell(cli, "bash");
             break;
         default:
-            console.log("Usage: myspace <project> (up | tunnel | local | extensions | unregister)");
+            console.log("Usage: myspace <project> (up | tunnel | local [forward_port] | extensions | unregister)");
             break;
     }
 }
 
-async function setUpContainer(cli: Cli, appPort: number) {
+async function setUpContainer(cli: Cli) {
     const cliConfig = await cli.readConfiguration();
+    const appPort = randomAppPort();
 
     // Create the container. Expose the port for the web UI.
     const configFile = await fsp.open(cliConfig.configuration.configFilePath.path);
@@ -57,6 +59,7 @@ async function setUpContainer(cli: Cli, appPort: number) {
 
     // Create directory for persistent storage.
     await waitForChild(cli.exec(["sh", "-c", `mkdir -p ${persistPath}`]));
+    await writePersistent(cli, { appPort });
 
     // Download VS Code CLI.
     await waitForChild(
@@ -82,21 +85,27 @@ async function runTunnel(cli: Cli) {
     await waitForChild(cli.exec(["sh", "-c", `${persistPath}/code tunnel`]));
 }
 
-async function runWebUi(cli: Cli, port: number, forwardPort: number) {
-    // App ports are only exposed to localhost, so spin up a simple port proxy.
-    // https://stackoverflow.com/a/19637388
-    net.createServer(from => {
-        const to = net.createConnection({ port });
-        from.on("error", to.destroy);
-        from.pipe(to);
-        to.on("error", from.destroy);
-        to.pipe(from);
-    }).listen(webUiForwardPort);
-    log("**", `Forwarding on port ${forwardPort} for access away from localhost.`, "**");
+async function runWebUi(cli: Cli, forwardPort: number | undefined) {
+    const { appPort } = await readPersistent(cli);
+
+    if (forwardPort !== undefined) {
+        // App ports are only exposed to localhost, so spin up a simple port proxy.
+        // https://stackoverflow.com/a/19637388
+        net.createServer(from => {
+            const to = net.createConnection({ port: appPort });
+            from.on("error", to.destroy);
+            from.pipe(to);
+            to.on("error", from.destroy);
+            to.pipe(from);
+        }).listen(forwardPort);
+        log("**", `Forwarding on port ${forwardPort} for access away from localhost.`, "**");
+    }
 
     // TODO: It would be preferable to run with the connection token, but that
     // doesn't seem to play nice with the port proxy.
-    await waitForChild(cli.exec(["sh", "-c", `${persistPath}/code serve-web  --host :: --port ${port} --without-connection-token`]));
+    await waitForChild(
+        cli.exec(["sh", "-c", `${persistPath}/code serve-web  --host :: --port ${appPort} --without-connection-token`]),
+    );
 }
 
 async function installExtensions(cli: Cli) {
@@ -188,6 +197,28 @@ class Cli {
         const shell = escapeShell(Cli.nodePath, Cli.modulePath, ...args);
         return spawn("sh", ["-c", "tee /dev/null | " + shell], options);
     }
+}
+
+function randomAppPort() {
+    const [first, last] = [49152, 65535];
+    return Math.round((last - first) * Math.random()) + first;
+}
+
+async function writePersistent(cli: Cli, data: Persistent) {
+    const doWrite = cli.exec(["sh", "-c", `cat >${persistPath}/persist.json`], {
+        stdio: ["pipe", "inherit", "inherit"],
+    });
+    doWrite.stdin.write(JSON.stringify(data));
+    doWrite.stdin.end();
+    await waitForChild(doWrite);
+}
+
+async function readPersistent(cli: Cli) {
+    const doRead = cli.exec(["sh", "-c", `cat ${persistPath}/persist.json`], {
+        stdio: ["inherit", "pipe", "inherit"],
+    });
+    const text = await waitForChildWithStdout(doRead);
+    return JSON.parse(text) as Persistent;
 }
 
 function escapeShell(...args: string[]) {
