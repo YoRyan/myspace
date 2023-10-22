@@ -4,7 +4,9 @@ import * as net from "net";
 import { parseArgs } from "node:util";
 import * as path from "path";
 
-/** Uniquely identifies a development project. */
+/**
+ * Uniquely identifies a project folder for which development containers are
+ * created. */
 type Project = {
     workspaceFolder: string;
 };
@@ -18,27 +20,27 @@ const persistPath = "~/.myspace";
 async function main() {
     const { positionals } = parseArgs({ strict: false });
     const [workspaceFolder, action, ...args] = positionals;
-    const cli = new Cli({ workspaceFolder });
+    const project: Project = { workspaceFolder };
     switch (action !== undefined ? action.toLowerCase() : "") {
         case "up":
-            await setUpContainer(cli);
+            await setUpContainer(project);
             break;
         case "tunnel":
-            await runTunnel(cli);
+            await runTunnel(project);
             break;
         case "local":
             const [forwardPort] = args;
-            await runWebUi(cli, forwardPort ? parseInt(forwardPort) : undefined);
+            await runWebUi(project, forwardPort ? parseInt(forwardPort) : undefined);
             break;
         case "ext":
         case "extensions":
-            await installExtensions(cli);
+            await installExtensions(project);
             break;
         case "unregister":
-            await unregisterTunnel(cli);
+            await unregisterTunnel(project);
             break;
         case "bash":
-            await executeShell(cli, "bash");
+            await executeShell(project, "bash");
             break;
         default:
             console.log("Usage: myspace <project> (up | tunnel | local [forward_port] | extensions | unregister)");
@@ -46,8 +48,8 @@ async function main() {
     }
 }
 
-async function setUpContainer(cli: Cli) {
-    const cliConfig = await cli.readConfiguration();
+async function setUpContainer(project: Project) {
+    const cliConfig = await Cli.readConfiguration(project);
     const appPort = randomAppPort();
 
     // Create the container. Expose the port for the web UI.
@@ -55,15 +57,15 @@ async function setUpContainer(cli: Cli) {
     const configText = (await fsp.readFile(configFile)).toString();
     const configJson = JSON.parse(configText.replace(/\/\/.*$/gm, ""));
     await configFile.close();
-    await cli.up({ ...configJson, appPort });
+    await Cli.up(project, { ...configJson, appPort });
 
     // Create directory for persistent storage.
-    await waitForChild(cli.exec(["sh", "-c", `mkdir -p ${persistPath}`]));
-    await writePersistent(cli, { appPort });
+    await waitForChild(Cli.exec(project, ["sh", "-c", `mkdir -p ${persistPath}`]));
+    await writePersistent(project, { appPort });
 
     // Download VS Code CLI.
     await waitForChild(
-        cli.exec([
+        Cli.exec(project, [
             "sh",
             "-c",
             `cd ${persistPath} && curl -L https://update.code.visualstudio.com/latest/cli-linux-x64/stable | tar xz`,
@@ -72,8 +74,8 @@ async function setUpContainer(cli: Cli) {
 
     // Insert custom settings JSON.
     const settings = cliConfig.configuration?.customizations?.vscode?.settings ?? {};
-    await waitForChild(cli.exec(["sh", "-c", "mkdir -p ~/.vscode-server/data/Machine/"]));
-    const saveSettings = cli.exec(["sh", "-c", "cat >~/.vscode-server/data/Machine/settings.json"], {
+    await waitForChild(Cli.exec(project, ["sh", "-c", "mkdir -p ~/.vscode-server/data/Machine/"]));
+    const saveSettings = Cli.exec(project, ["sh", "-c", "cat >~/.vscode-server/data/Machine/settings.json"], {
         stdio: ["pipe", "inherit", "inherit"],
     });
     saveSettings.stdin.write(JSON.stringify(settings));
@@ -81,12 +83,12 @@ async function setUpContainer(cli: Cli) {
     await waitForChild(saveSettings);
 }
 
-async function runTunnel(cli: Cli) {
-    await waitForChild(cli.exec(["sh", "-c", `${persistPath}/code tunnel`]));
+async function runTunnel(project: Project) {
+    await waitForChild(Cli.exec(project, ["sh", "-c", `${persistPath}/code tunnel`]));
 }
 
-async function runWebUi(cli: Cli, forwardPort: number | undefined) {
-    const { appPort } = await readPersistent(cli);
+async function runWebUi(project: Project, forwardPort: number | undefined) {
+    const { appPort } = await readPersistent(project);
 
     if (forwardPort !== undefined) {
         // App ports are only exposed to localhost, so spin up a simple port proxy.
@@ -104,18 +106,22 @@ async function runWebUi(cli: Cli, forwardPort: number | undefined) {
     // TODO: It would be preferable to run with the connection token, but that
     // doesn't seem to play nice with the port proxy.
     await waitForChild(
-        cli.exec(["sh", "-c", `${persistPath}/code serve-web  --host :: --port ${appPort} --without-connection-token`]),
+        Cli.exec(project, [
+            "sh",
+            "-c",
+            `${persistPath}/code serve-web  --host :: --port ${appPort} --without-connection-token`,
+        ]),
     );
 }
 
-async function installExtensions(cli: Cli) {
-    const config = await cli.readConfiguration();
+async function installExtensions(project: Project) {
+    const config = await Cli.readConfiguration(project);
     const extensions: string[] = config.configuration?.customizations?.vscode?.extensions ?? [];
     if (extensions.length === 0) {
         return;
     }
 
-    const codeServerFind = cli.exec(["sh", "-c", "find ~/.vscode -name code-server"], {
+    const codeServerFind = Cli.exec(project, ["sh", "-c", "find ~/.vscode -name code-server"], {
         stdio: ["ignore", "pipe", "inherit"],
     });
     const codeServerPath = (await waitForChildWithStdout(codeServerFind)).trim();
@@ -123,40 +129,27 @@ async function installExtensions(cli: Cli) {
         throw "code-server binary not found; have you created a tunnel yet?";
     }
     for (const ext of extensions) {
-        await waitForChild(cli.exec([codeServerPath, "--install-extension", ext]));
+        await waitForChild(Cli.exec(project, [codeServerPath, "--install-extension", ext]));
     }
 }
 
-async function unregisterTunnel(cli: Cli) {
-    await waitForChild(cli.exec(["sh", "-c", `${persistPath}/code tunnel unregister`]));
+async function unregisterTunnel(project: Project) {
+    await waitForChild(Cli.exec(project, ["sh", "-c", `${persistPath}/code tunnel unregister`]));
 }
 
-async function executeShell(cli: Cli, cmd: string, ...args: string[]) {
-    await waitForChild(cli.exec([cmd, ...args]));
+async function executeShell(project: Project, cmd: string, ...args: string[]) {
+    await waitForChild(Cli.exec(project, [cmd, ...args]));
 }
 
 class Cli {
-    public readonly project: Project;
+    private static readonly executableArgs: [string, string] = [
+        process.argv[0],
+        path.resolve(__dirname, "@devcontainers", "cli", "dist", "spec-node", "devContainersSpecCLI.js"),
+    ];
 
-    private static readonly nodePath = process.argv[0];
-    private static readonly modulePath = path.resolve(
-        __dirname,
-        "@devcontainers",
-        "cli",
-        "dist",
-        "spec-node",
-        "devContainersSpecCLI.js",
-    );
-    private readonly projectOptions: string[];
-
-    constructor(project: Project) {
-        this.project = project;
-        this.projectOptions = ["--workspace-folder", project.workspaceFolder];
-    }
-
-    async up(overrideConfig: any) {
+    static async up(project: Project, overrideConfig: any) {
         // Need to use a shell because Node doesn't populate /dev/stdin...
-        const child = Cli.spawnInShell(["up", ...this.projectOptions, "--override-config", "/dev/stdin"], {
+        const child = Cli.spawnInShell(project, "up", ["--override-config", "/dev/stdin"], {
             stdio: ["pipe", "inherit", "inherit"],
         });
         child.stdin.write(JSON.stringify(overrideConfig));
@@ -165,16 +158,16 @@ class Cli {
         await waitForChild(child);
     }
 
-    exec(args: string[], options: SpawnOptions = {}) {
-        return Cli.spawn(["exec", ...this.projectOptions, ...args], {
+    static exec(project: Project, args: string[], options: SpawnOptions = {}) {
+        return Cli.spawn(project, "exec", args, {
             detached: true,
             stdio: ["inherit", "inherit", "inherit"],
             ...options,
         });
     }
 
-    async readConfiguration() {
-        const child = Cli.spawn(["read-configuration", ...this.projectOptions], {
+    static async readConfiguration(project: Project) {
+        const child = Cli.spawn(project, "read-configuration", [], {
             stdio: ["ignore", "pipe", "inherit"],
         });
         const text = await waitForChildWithStdout(child);
@@ -184,18 +177,25 @@ class Cli {
         return JSON.parse(text);
     }
 
-    private static spawn(args: string[], options: SpawnOptions) {
-        log("devcontainer", ...args);
+    private static spawn(project: Project, command: string, args: string[], options: SpawnOptions) {
+        const cliArgs = [command, ...Cli.projectArgs(project), ...args];
+        log("devcontainer", ...cliArgs);
 
         // Don't use fork() here; it seems to break the exec command.
-        return spawn(Cli.nodePath, [Cli.modulePath, ...args], options);
+        const [node, modulePath] = Cli.executableArgs;
+        return spawn(node, [modulePath, ...cliArgs], options);
     }
 
-    private static spawnInShell(args: string[], options: SpawnOptions) {
-        log("devcontainer", ...args);
+    private static spawnInShell(project: Project, command: string, args: string[], options: SpawnOptions) {
+        const cliArgs = [command, ...Cli.projectArgs(project), ...args];
+        log("devcontainer", ...cliArgs);
 
-        const shell = escapeShell(Cli.nodePath, Cli.modulePath, ...args);
+        const shell = escapeShell(...Cli.executableArgs, ...cliArgs);
         return spawn("sh", ["-c", "tee /dev/null | " + shell], options);
+    }
+
+    private static projectArgs(project: Project) {
+        return ["--workspace-folder", project.workspaceFolder];
     }
 }
 
@@ -204,8 +204,8 @@ function randomAppPort() {
     return Math.round((last - first) * Math.random()) + first;
 }
 
-async function writePersistent(cli: Cli, data: Persistent) {
-    const doWrite = cli.exec(["sh", "-c", `cat >${persistPath}/persist.json`], {
+async function writePersistent(project: Project, data: Persistent) {
+    const doWrite = Cli.exec(project, ["sh", "-c", `cat >${persistPath}/persist.json`], {
         stdio: ["pipe", "inherit", "inherit"],
     });
     doWrite.stdin.write(JSON.stringify(data));
@@ -213,8 +213,8 @@ async function writePersistent(cli: Cli, data: Persistent) {
     await waitForChild(doWrite);
 }
 
-async function readPersistent(cli: Cli) {
-    const doRead = cli.exec(["sh", "-c", `cat ${persistPath}/persist.json`], {
+async function readPersistent(project: Project) {
+    const doRead = Cli.exec(project, ["sh", "-c", `cat ${persistPath}/persist.json`], {
         stdio: ["inherit", "pipe", "inherit"],
     });
     const text = await waitForChildWithStdout(doRead);
