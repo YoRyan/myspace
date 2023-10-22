@@ -191,7 +191,7 @@ class Cli {
         log("devcontainer", ...cliArgs);
 
         const shell = escapeShell(...Cli.executableArgs, ...cliArgs);
-        return spawn("sh", ["-c", "tee /dev/null | " + shell], options);
+        return spawn("sh", ["-c", "cat | " + shell], options);
     }
 
     private static projectArgs(project: Project) {
