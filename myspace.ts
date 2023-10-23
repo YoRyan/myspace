@@ -126,7 +126,7 @@ async function installExtensions(project: Project) {
     });
     const codeServerPath = (await waitForChildWithStdout(codeServerFind)).trim();
     if (!codeServerPath) {
-        throw "code-server binary not found; have you created a tunnel yet?";
+        throw "code-server binary not found; have you connected from a browser yet?";
     }
     for (const ext of extensions) {
         await waitForChild(Cli.exec(project, [codeServerPath, "--install-extension", ext]));
@@ -172,7 +172,7 @@ class Cli {
         });
         const text = await waitForChildWithStdout(child);
         if (!text) {
-            throw "unable to read dev container configuration; does this workspace have one?";
+            throw "unable to read dev container configuration; does this folder have one?";
         }
         return JSON.parse(text);
     }
