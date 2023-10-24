@@ -1,8 +1,8 @@
 import { ChildProcess, SpawnOptions, spawn } from "child_process";
 import * as fsp from "fs/promises";
 import * as net from "net";
-import { parseArgs } from "node:util";
 import * as path from "path";
+import { parseArgs } from "util";
 
 /**
  * Uniquely identifies a project folder for which development containers are
