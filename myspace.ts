@@ -160,7 +160,6 @@ class Cli {
 
     static exec(project: Project, args: string[], options: SpawnOptions = {}) {
         return Cli.spawn(project, "exec", args, {
-            detached: true,
             stdio: ["inherit", "inherit", "inherit"],
             ...options,
         });
